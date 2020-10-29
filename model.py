@@ -166,7 +166,7 @@ class EncoderText(nn.Module):
         cap_emb, cap_len = padded
 
         if self.use_bi_gru:
-            cap_emb = (cap_emb[:,:,:cap_emb.size(2)/2] + cap_emb[:,:,cap_emb.size(2)/2:])/2
+            cap_emb = (cap_emb[:,:,:cap_emb.size(2)//2] + cap_emb[:,:,cap_emb.size(2)//2:])/2
 
         # normalization in the joint embedding space
         if not self.no_txtnorm:
@@ -449,7 +449,7 @@ class SCAN(object):
         """Compute the loss given pairs of image and caption embeddings
         """
         loss = self.criterion(img_emb, cap_emb, cap_len)
-        self.logger.update('Le', loss.data[0], img_emb.size(0))
+        self.logger.update('Le', loss.item(), img_emb.size(0))
         return loss
 
     def train_emb(self, images, captions, lengths, ids=None, *args):

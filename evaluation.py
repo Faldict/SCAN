@@ -67,7 +67,7 @@ class LogCollector(object):
         """Concatenate the meters in one log line
         """
         s = ''
-        for i, (k, v) in enumerate(self.meters.iteritems()):
+        for i, (k, v) in enumerate(self.meters.items()):
             if i > 0:
                 s += '  '
             s += k + ' ' + str(v)
@@ -76,7 +76,7 @@ class LogCollector(object):
     def tb_log(self, tb_logger, prefix='', step=None):
         """Log using tensorboard
         """
-        for k, v in self.meters.iteritems():
+        for k, v in self.meters.items():
             tb_logger.log_value(prefix + k, v.val, step=step)
 
 
@@ -258,8 +258,8 @@ def shard_xattn_t2i(images, captions, caplens, opt, shard_size=128):
     """
     Computer pairwise t2i image-caption distance with locality sharding
     """
-    n_im_shard = (len(images)-1)/shard_size + 1
-    n_cap_shard = (len(captions)-1)/shard_size + 1
+    n_im_shard = (len(images)-1)//shard_size + 1
+    n_cap_shard = (len(captions)-1)//shard_size + 1
     
     d = np.zeros((len(images), len(captions)))
     for i in range(n_im_shard):
@@ -280,8 +280,8 @@ def shard_xattn_i2t(images, captions, caplens, opt, shard_size=128):
     """
     Computer pairwise i2t image-caption distance with locality sharding
     """
-    n_im_shard = (len(images)-1)/shard_size + 1
-    n_cap_shard = (len(captions)-1)/shard_size + 1
+    n_im_shard = (len(images)-1)//shard_size + 1
+    n_cap_shard = (len(captions)-1)//shard_size + 1
     
     d = np.zeros((len(images), len(captions)))
     for i in range(n_im_shard):
