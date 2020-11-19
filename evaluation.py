@@ -234,9 +234,70 @@ def evalrank(model_path, data_path=None, split='dev', fold5=False):
         print("Average t2i Recall: %.1f" % mean_metrics[12])
         print("Text to image: %.1f %.1f %.1f %.1f %.1f" %
               mean_metrics[5:10])
-
+    
+    # evaluate fairness
+    with open('gender_difference.txt', 'w') as f:
+        for nr in range(10, 101, 10):
+            delta_spec, delta_ntrl = gender(data_loader, vocab, sims, nrank=nr)
+            f.write(f"{nr}\t{abs(delta_spec).mean()}\t{abs(delta_ntrl).mean()}\n")
     torch.save({'rt': rt, 'rti': rti}, 'ranks.pth.tar')
 
+def contain(text, keywords):
+    for keyword in keywords:
+        if keyword in text:
+            return True
+    return False
+
+def gender(data_loader, vocab, sims, nrank=10):
+    GN = 911
+    GM = 991
+    GF = 992
+    num = len(data_loader.dataset)
+    # print(num, sims.shape)
+    sims = sims.T
+
+    # count gender
+    genders = np.zeros(num)
+    males = [vocab.word2idx['man'], vocab.word2idx['male'], vocab.word2idx['boy'], vocab.word2idx['gentleman'], vocab.word2idx['his']]
+    females = [vocab.word2idx['woman'], vocab.word2idx['girl'], vocab.word2idx['female'], vocab.word2idx['lady'], vocab.word2idx['her']]
+    neutral = [vocab.word2idx['person'], vocab.word2idx['people'], vocab.word2idx['adult'], vocab.word2idx['children'], vocab.word2idx['child'], vocab.word2idx['kids'], vocab.word2idx['family'], vocab.word2idx['crowd']]
+    # print(males)
+    for i, (images, captions, lengths, ids) in enumerate(data_loader):
+        # print(images, captions, ids)
+        for j in range(len(captions)):
+            caption = captions[j]
+            if contain(caption,males) and contain(caption, females):
+                genders[i*len(captions)+j] = GN
+            elif contain(caption,males):
+                genders[i*len(captions)+j] = GM
+            elif contain(caption, females):
+                genders[i*len(captions)+j] = GF
+            else:
+                genders[i*len(captions)+j] = GN
+
+    ranking = []
+    for index in range(num):
+        inds = np.argsort(sims[index])[::-1]
+        # ranking.append(genders[inds[:nrank]*5])
+        rank_i = []
+        for ind in inds[:nrank]:
+            i_g = set([genders[ind * 5 + j] for j in range(5)])
+            if i_g == {GM} or i_g == {GM, GN}:
+                rank_i.append(GM)
+            elif i_g == {GF} or i_g == {GF, GN}:
+                rank_i.append(GF)
+            else:
+                rank_i.append(GN)
+        ranking.append(rank_i)
+    ranking = np.array(ranking)
+    # print(ranking.shape)
+    male = np.where(ranking == GM, 1, 0).sum(axis=1)
+    female = np.where(ranking == GF, 1, 0).sum(axis=1)
+    delta_spec = male[genders != GN] - female[genders != GN]
+    delta_ntrl = male[genders == GN] - female[genders == GN]
+    print("Gender-Specific Difference: ", abs(male[genders != GN] - female[genders != GN]).mean())
+    print("Gender-Neutral Difference: ", abs(male[genders == GN] - female[genders == GN]).mean())
+    return delta_spec, delta_ntrl    
 
 def softmax(X, axis):
     """
