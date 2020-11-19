@@ -19,7 +19,12 @@ import torch.backends.cudnn as cudnn
 from torch.nn.utils.clip_grad import clip_grad_norm
 import numpy as np
 from collections import OrderedDict
+from enum import Enum
 
+class Gender(Enum):
+    Male = 10086
+    Female = 10087
+    Neutral = 10089
 
 def l1norm(X, dim, eps=1e-8):
     """L1-normalize columns of X
@@ -331,7 +336,6 @@ def xattn_score_i2t(images, captions, cap_lens, opt):
     similarities = torch.cat(similarities, 1)
     return similarities
 
-
 class ContrastiveLoss(nn.Module):
     """
     Compute contrastive loss
@@ -342,7 +346,7 @@ class ContrastiveLoss(nn.Module):
         self.margin = margin
         self.max_violation = max_violation
 
-    def forward(self, im, s, s_l):
+    def forward(self, im, s, s_l, s_a):
         # compute image-sentence score matrix
         if self.opt.cross_attn == 't2i':
             scores = xattn_score_t2i(im, s, s_l, self.opt)
@@ -373,7 +377,20 @@ class ContrastiveLoss(nn.Module):
         if self.max_violation:
             cost_s = cost_s.max(1)[0]
             cost_im = cost_im.max(0)[0]
-        return cost_s.sum() + cost_im.sum()
+        
+        # fairness-aware negative sampling
+        s_a = np.array(s_a)
+        neg_inds = []
+        for i in range(s_a.shape[0]):
+            index = np.nonzero(s_a != s_a[i])[0]
+            if index.size > 0:
+                ind = np.random.choice(index)
+            else:
+                ind = np.random.choice(s_a.shape[0])
+            neg_inds.append(ind)
+        
+        neg_idxs = torch.from_numpy(np.array(neg_inds)).long.view(-1, 1)
+        return cost_s.gather(1, neg_idxs).sum() + cost_im.t().gather(1, neg_idxs).sum()
 
 
 class SCAN(object):
@@ -382,6 +399,9 @@ class SCAN(object):
     """
     def __init__(self, opt):
         # Build Models
+        from vocab import Vocabulary, deserialize_vocab
+        self.vocab = deserialize_vocab(os.path.join(opt.vocab_path, '%s_vocab.json' % opt.data_name))
+        
         self.grad_clip = opt.grad_clip
         self.img_enc = EncoderImage(opt.data_name, opt.img_dim, opt.embed_size,
                                     precomp_enc_type=opt.precomp_enc_type,
@@ -407,6 +427,34 @@ class SCAN(object):
         self.optimizer = torch.optim.Adam(params, lr=opt.learning_rate)
 
         self.Eiters = 0
+
+    def gender_attr(captions):
+        """ Determine the gender attribute of each caption
+        Input:
+            - captions : (n_caption)
+        """
+        gender_attributes = []
+        males = [self.vocab.word2idx[word] for word in ['man', 'male', 'gentleman', 'his', 'boy']]
+        females = [self.vocab.word2idx[word] for word in ['woman', 'female', 'lady', 'her', 'girl']]
+        neutral = [self.vocab.word2idx[word] for word in ['person', 'people', 'children', 'family', 'crowd', 'adult', 'kid', 'child']]
+        
+        def contain(text, keywords):
+            for keyword in keywords:
+                if keyword in text:
+                    return True
+            return False
+        
+        for j in range(len(captions)):
+            caption = captions[j]
+            if contain(caption,males) and contain(caption, females):
+                gender_attribute.append(Gender.Neutral)
+            elif contain(caption,males):
+                gender_attribute.append(Gender.Male)
+            elif contain(caption, females):
+                gender_attribute.append(Gender.Female)
+            else:
+                gender_attribute.append(Gender.Neutral)
+        return gender_attribute
 
     def state_dict(self):
         state_dict = [self.img_enc.state_dict(), self.txt_enc.state_dict()]
@@ -443,12 +491,13 @@ class SCAN(object):
 
         # cap_emb (tensor), cap_lens (list)
         cap_emb, cap_lens = self.txt_enc(captions, lengths)
-        return img_emb, cap_emb, cap_lens
+        cap_attr = gender_attr(captions)
+        return img_emb, cap_emb, cap_lens, cap_attr
 
-    def forward_loss(self, img_emb, cap_emb, cap_len, **kwargs):
+    def forward_loss(self, img_emb, cap_emb, cap_len, cap_attr, **kwargs):
         """Compute the loss given pairs of image and caption embeddings
         """
-        loss = self.criterion(img_emb, cap_emb, cap_len)
+        loss = self.criterion(img_emb, cap_emb, cap_len, cap_attr)
         self.logger.update('Le', loss.item(), img_emb.size(0))
         return loss
 
@@ -460,11 +509,11 @@ class SCAN(object):
         self.logger.update('lr', self.optimizer.param_groups[0]['lr'])
 
         # compute the embeddings
-        img_emb, cap_emb, cap_lens = self.forward_emb(images, captions, lengths)
+        img_emb, cap_emb, cap_lens, cap_attr = self.forward_emb(images, captions, lengths)
 
         # measure accuracy and record loss
         self.optimizer.zero_grad()
-        loss = self.forward_loss(img_emb, cap_emb, cap_lens)
+        loss = self.forward_loss(img_emb, cap_emb, cap_lens, cap_attr)
 
         # compute gradient and do SGD step
         loss.backward()
