@@ -105,7 +105,7 @@ def encode_data(model, data_loader, log_step=10, logging=print):
         model.logger = val_logger
 
         # compute the embeddings
-        img_emb, cap_emb, cap_len = model.forward_emb(images, captions, lengths, volatile=True)
+        img_emb, cap_emb, cap_len, cap_attr = model.forward_emb(images, captions, lengths, volatile=True)
         #print(img_emb)
         if img_embs is None:
             if img_emb.dim() == 3:
@@ -121,7 +121,7 @@ def encode_data(model, data_loader, log_step=10, logging=print):
             cap_lens[nid] = cap_len[j]
 
         # measure accuracy and record loss
-        model.forward_loss(img_emb, cap_emb, cap_len)
+        model.forward_loss(img_emb, cap_emb, cap_len, cap_attr)
 
         # measure elapsed time
         batch_time.update(time.time() - end)

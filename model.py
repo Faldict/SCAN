@@ -7,7 +7,7 @@
 # Writen by Kuang-Huei Lee, 2018
 # ---------------------------------------------------------------
 """SCAN model"""
-
+import os
 import torch
 import torch.nn as nn
 import torch.nn.init
@@ -374,22 +374,31 @@ class ContrastiveLoss(nn.Module):
         cost_im = cost_im.masked_fill_(I, 0)
 
         # keep the maximum violating negative for each query
-        if self.max_violation:
-            cost_s = cost_s.max(1)[0]
-            cost_im = cost_im.max(0)[0]
+        # if self.max_violation:
+        #    cost_s = cost_s.max(1)[0]
+        #    cost_im = cost_im.max(0)[0]
         
         # fairness-aware negative sampling
         s_a = np.array(s_a)
         neg_inds = []
         for i in range(s_a.shape[0]):
-            index = np.nonzero(s_a != s_a[i])[0]
-            if index.size > 0:
-                ind = np.random.choice(index)
+            if s_a[i] != Gender.Neutral:
+                index = np.nonzero(s_a != s_a[i])[0]
+                if index.size > 0:
+                    ind = np.random.choice(index)
+                else:
+                    ind = np.random.choice(s_a.shape[0])
             else:
-                ind = np.random.choice(s_a.shape[0])
+                index = np.nonzero(s_a == s_a[i])[0]
+                if index.size > 1:
+                    ind = np.random.choice(index)
+                else:
+                    ind = np.random.choice(s_a.shape[0])
             neg_inds.append(ind)
-        
-        neg_idxs = torch.from_numpy(np.array(neg_inds)).long.view(-1, 1)
+   
+        neg_idxs = torch.from_numpy(np.array(neg_inds)).long().view(-1, 1)
+        if torch.cuda.is_available():
+            neg_idxs = neg_idxs.cuda()
         return cost_s.gather(1, neg_idxs).sum() + cost_im.t().gather(1, neg_idxs).sum()
 
 
@@ -428,7 +437,7 @@ class SCAN(object):
 
         self.Eiters = 0
 
-    def gender_attr(captions):
+    def gender_attr(self,captions):
         """ Determine the gender attribute of each caption
         Input:
             - captions : (n_caption)
@@ -447,14 +456,14 @@ class SCAN(object):
         for j in range(len(captions)):
             caption = captions[j]
             if contain(caption,males) and contain(caption, females):
-                gender_attribute.append(Gender.Neutral)
+                gender_attributes.append(Gender.Neutral)
             elif contain(caption,males):
-                gender_attribute.append(Gender.Male)
+                gender_attributes.append(Gender.Male)
             elif contain(caption, females):
-                gender_attribute.append(Gender.Female)
+                gender_attributes.append(Gender.Female)
             else:
-                gender_attribute.append(Gender.Neutral)
-        return gender_attribute
+                gender_attributes.append(Gender.Neutral)
+        return gender_attributes
 
     def state_dict(self):
         state_dict = [self.img_enc.state_dict(), self.txt_enc.state_dict()]
@@ -491,7 +500,7 @@ class SCAN(object):
 
         # cap_emb (tensor), cap_lens (list)
         cap_emb, cap_lens = self.txt_enc(captions, lengths)
-        cap_attr = gender_attr(captions)
+        cap_attr = self.gender_attr(captions)
         return img_emb, cap_emb, cap_lens, cap_attr
 
     def forward_loss(self, img_emb, cap_emb, cap_len, cap_attr, **kwargs):
