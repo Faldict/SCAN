@@ -237,7 +237,7 @@ def evalrank(model_path, data_path=None, split='dev', fold5=False):
     
     # evaluate fairness
     with open('gender_difference.txt', 'w') as f:
-        for nr in range(10, 101, 10):
+        for nr in range(1, 11):
             delta_spec, delta_ntrl = gender(data_loader, vocab, sims, nrank=nr)
             f.write(f"{nr}\t{abs(delta_spec).mean()}\t{abs(delta_ntrl).mean()}\n")
     torch.save({'rt': rt, 'rti': rti}, 'ranks.pth.tar')
