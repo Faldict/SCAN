@@ -341,7 +341,7 @@ class CounterfactualLoss(nn.Module):
     Compute counterfactual loss
     """
     def __init__(self, opt, margin=0, max_violation=False):
-        super(ContrastiveLoss, self).__init__()
+        super(CounterfactualLoss, self).__init__()
         self.opt = opt
         self.margin = margin
         self.max_violation = max_violation
@@ -368,7 +368,7 @@ class CounterfactualLoss(nn.Module):
 
         cost = (self.margin + neg_diagonal - pos_diagonal).clamp(min=0)
 
-        return cost.mean()
+        return cost.sum()
 
 class ContrastiveLoss(nn.Module):
     """
@@ -459,7 +459,7 @@ class SCAN(object):
             cudnn.benchmark = True
 
         # Loss and Optimizer
-        self.criterion = ContrastiveLoss(opt=opt,
+        self.criterion = CounterfactualLoss(opt=opt,
                                          margin=opt.margin,
                                          max_violation=opt.max_violation)
         params = list(self.txt_enc.parameters())
@@ -550,14 +550,14 @@ class SCAN(object):
                 caption = captions[i]
                 for j in range(len(caption)):
                     if caption[j] in males:
-                        caption[j] = np.random.choice(females)
+                        caption[j] = torch.from_numpy(np.random.choice(females)).to(caption)
                 negative_samples.append(caption)
                 neg_lengths.append(lengths[i])
             elif cap_attr[i] == Gender.Female:
                 caption = captions[i]
                 for j in range(len(caption)):
                     if caption[j] in females:
-                        caption[j] = np.random.choice(males)
+                        caption[j] = torch.from_numpy(np.random.choice(males)).to(caption)
                 negative_samples.append(caption)
                 neg_lengths.append(lengths[i])
             else:
