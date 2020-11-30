@@ -336,6 +336,40 @@ def xattn_score_i2t(images, captions, cap_lens, opt):
     similarities = torch.cat(similarities, 1)
     return similarities
 
+class CounterfactualLoss(nn.Module):
+    """
+    Compute counterfactual loss
+    """
+    def __init__(self, opt, margin=0, max_violation=False):
+        super(ContrastiveLoss, self).__init__()
+        self.opt = opt
+        self.margin = margin
+        self.max_violation = max_violation
+
+    def forward(self, im, pos, pos_l, neg, neg_l):
+        # compute image-sentence score matrix
+        if self.opt.cross_attn == 't2i':
+            pos_scores = xattn_score_t2i(im, pos, pos_l, self.opt)
+            neg_scores = xattn_score_t2i(im, neg, neg_l, self.opt)
+        elif self.opt.cross_attn == 'i2t':
+            pos_scores = xattn_score_i2t(im, pos, pos_l, self.opt)
+            neg_scores = xattn_score_i2t(im, neg, neg_l, self.opt)
+        else:
+            raise ValueError("unknown first norm type:", opt.raw_feature_norm)
+        pos_diagonal = pos_scores.diag().view(im.size(0), 1)
+        neg_diagonal = neg_scores.diag().view(im.size(0), 1)
+
+        # compare every diagonal score to scores in its column
+        # caption retrieval
+        cost_s = (self.margin + scores - d1).clamp(min=0)
+        # compare every diagonal score to scores in its row
+        # image retrieval
+        cost_im = (self.margin + scores - d2).clamp(min=0)
+
+        cost = (self.margin + neg_diagonal - pos_diagonal).clamp(min=0)
+
+        return cost.mean()
+
 class ContrastiveLoss(nn.Module):
     """
     Compute contrastive loss
@@ -485,28 +519,71 @@ class SCAN(object):
         self.img_enc.eval()
         self.txt_enc.eval()
 
-    def forward_emb(self, images, captions, lengths, volatile=False):
+    def forward_emb(self, images, captions, lengths, volatile=False, training=False):
         """Compute the image and caption embeddings
         """
         # Set mini-batch dataset
+        if not training:
+            images = Variable(images, volatile=volatile)
+            captions = Variable(captions, volatile=volatile)
+            if torch.cuda.is_available():
+                images = images.cuda()
+                captions = captions.cuda()
+
+            # Forward
+            img_emb = self.img_enc(images)
+
+            # cap_emb (tensor), cap_lens (list)
+            cap_emb, cap_lens = self.txt_enc(captions, lengths)
+            return img_emb, cap_emb, cap_lens
+
+        # negative sampling
+        males = [self.vocab.word2idx[word] for word in ['man', 'male', 'gentleman', 'boy']]
+        females = [self.vocab.word2idx[word] for word in ['woman', 'female', 'lady', 'girl']]
+        
+        negative_samples = []
+        neg_lengths = []
+        cap_attr = self.gender_attr(captions)
+        for i in range(len(captions)):
+            # generate counterfactual
+            if cap_attr[i] == Gender.Male:
+                caption = captions[i]
+                for j in range(len(caption)):
+                    if caption[j] in males:
+                        caption[j] = np.random.choice(females)
+                negative_samples.append(caption)
+                neg_lengths.append(lengths[i])
+            elif cap_attr[i] == Gender.Female:
+                caption = captions[i]
+                for j in range(len(caption)):
+                    if caption[j] in females:
+                        caption[j] = np.random.choice(males)
+                negative_samples.append(caption)
+                neg_lengths.append(lengths[i])
+            else:
+                j = np.random.randint(0, len(captions)-1)
+                negative_samples.append(captions[j])
+                neg_lengths.append(lengths[j])
+                
         images = Variable(images, volatile=volatile)
         captions = Variable(captions, volatile=volatile)
+        negative_samples = Variable(negative_samples, volatile=volatile)
+        
         if torch.cuda.is_available():
             images = images.cuda()
             captions = captions.cuda()
+            negative_samples = negative_samples.cuda()
 
-        # Forward
         img_emb = self.img_enc(images)
-
-        # cap_emb (tensor), cap_lens (list)
         cap_emb, cap_lens = self.txt_enc(captions, lengths)
-        cap_attr = self.gender_attr(captions)
-        return img_emb, cap_emb, cap_lens, cap_attr
+        neg_cap_emb, neg_cap_lens = self.txt_enc(negative_samples, neg_lengths)
 
-    def forward_loss(self, img_emb, cap_emb, cap_len, cap_attr, **kwargs):
+        return img_emb, cap_emb, cap_lens, neg_cap_emb, neg_cap_lens
+
+    def forward_loss(self, img_emb, pos_cap_emb, pos_cap_len, neg_cap_emb, neg_cap_lens, **kwargs):
         """Compute the loss given pairs of image and caption embeddings
         """
-        loss = self.criterion(img_emb, cap_emb, cap_len, cap_attr)
+        loss = self.criterion(img_emb, pos_cap_emb, pos_cap_len, neg_cap_emb, neg_cap_lens)
         self.logger.update('Le', loss.item(), img_emb.size(0))
         return loss
 
@@ -518,11 +595,11 @@ class SCAN(object):
         self.logger.update('lr', self.optimizer.param_groups[0]['lr'])
 
         # compute the embeddings
-        img_emb, cap_emb, cap_lens, cap_attr = self.forward_emb(images, captions, lengths)
+        img_emb, pos_cap_emb, pos_cap_lens, neg_cap_emb, neg_cap_lens = self.forward_emb(images, captions, lengths, training=True)
 
         # measure accuracy and record loss
         self.optimizer.zero_grad()
-        loss = self.forward_loss(img_emb, cap_emb, cap_lens, cap_attr)
+        loss = self.forward_loss(img_emb, pos_cap_emb, pos_cap_lens, neg_cap_emb, neg_cap_lens)
 
         # compute gradient and do SGD step
         loss.backward()
