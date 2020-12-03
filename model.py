@@ -161,7 +161,7 @@ class EncoderText(nn.Module):
         """
         # Embed word ids to vectors
         x = self.embed(x)
-        packed = pack_padded_sequence(x, lengths, batch_first=True)
+        packed = pack_padded_sequence(x, lengths, batch_first=True, enforce_sorted=False)
 
         # Forward propagate RNN
         out, _ = self.rnn(packed)
@@ -361,10 +361,10 @@ class CounterfactualLoss(nn.Module):
 
         # compare every diagonal score to scores in its column
         # caption retrieval
-        cost_s = (self.margin + scores - d1).clamp(min=0)
+        # cost_s = (self.margin + scores - d1).clamp(min=0)
         # compare every diagonal score to scores in its row
         # image retrieval
-        cost_im = (self.margin + scores - d2).clamp(min=0)
+        # cost_im = (self.margin + scores - d2).clamp(min=0)
 
         cost = (self.margin + neg_diagonal - pos_diagonal).clamp(min=0)
 
@@ -547,24 +547,26 @@ class SCAN(object):
         for i in range(len(captions)):
             # generate counterfactual
             if cap_attr[i] == Gender.Male:
-                caption = captions[i]
+                caption = captions[i].numpy()
+                #print(caption.type)
                 for j in range(len(caption)):
                     if caption[j] in males:
-                        caption[j] = torch.from_numpy(np.random.choice(females)).to(caption)
+                        tmp = np.random.choice(females)
+                        caption[j] = tmp
                 negative_samples.append(caption)
                 neg_lengths.append(lengths[i])
             elif cap_attr[i] == Gender.Female:
-                caption = captions[i]
+                caption = captions[i].numpy()
                 for j in range(len(caption)):
                     if caption[j] in females:
-                        caption[j] = torch.from_numpy(np.random.choice(males)).to(caption)
+                        caption[j] = np.random.choice(males)
                 negative_samples.append(caption)
                 neg_lengths.append(lengths[i])
             else:
                 j = np.random.randint(0, len(captions)-1)
-                negative_samples.append(captions[j])
+                negative_samples.append(captions[j].numpy())
                 neg_lengths.append(lengths[j])
-                
+        negative_samples = torch.from_numpy(np.array(negative_samples))        
         images = Variable(images, volatile=volatile)
         captions = Variable(captions, volatile=volatile)
         negative_samples = Variable(negative_samples, volatile=volatile)
