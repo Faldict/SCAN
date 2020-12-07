@@ -238,7 +238,7 @@ def evalrank(model_path, data_path=None, split='dev', fold5=False):
     # evaluate fairness
     print("start evaluting gender bias")
     with open('gender_difference.txt', 'w') as f:
-        for nr in [1,3,5,10]:
+        for nr in range(1, 11):
             delta_male, delta_female, delta_ntrl = gender(data_loader, vocab, sims, nrank=nr)
             f.write(f"{nr}\t{(delta_male).mean()}\t{delta_female.mean()}\t{delta_ntrl.mean()}\n")
     torch.save({'rt': rt, 'rti': rti}, 'ranks.pth.tar')
@@ -275,9 +275,11 @@ def gender(data_loader, vocab, sims, nrank=10):
             else:
                 genders[i*len(captions)+j] = GN
     ranking = []
+    recall = []
     for index in range(num):
         inds = np.argsort(sims[index])[::-1]
         ranking.append(genders[inds[:nrank]*5])
+        recall.append(inds)
         # rank_i = []
         # for ind in inds[:nrank]:
             # i_g = set([genders[ind * 5 + j] for j in range(5)])
@@ -289,7 +291,13 @@ def gender(data_loader, vocab, sims, nrank=10):
             #     rank_i.append(GN)
         # ranking.append(rank_i)
     ranking = np.array(ranking)
+    recall = np.array(recall)
     # print(ranking.shape)
+    with open('gender_bias.npy', 'wb') as f:
+        np.save(f, genders)
+        np.save(f, ranking)
+        np.save(f, recall)
+
     male = np.where(ranking == GM, 1, 0).sum(axis=1)
     female = np.where(ranking == GF, 1, 0).sum(axis=1)
     delta_male = male[genders == GM] - female[genders == GM]
