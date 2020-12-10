@@ -382,7 +382,7 @@ class ContrastiveLoss(nn.Module):
         s_a = np.array(s_a)
         neg_inds = []
         for i in range(s_a.shape[0]):
-            if s_a[i] != Gender.Neutral:
+            if s_a[i] != Gender.Male:
                 index = np.nonzero(s_a != s_a[i])[0]
                 if index.size > 0:
                     ind = np.random.choice(index)
