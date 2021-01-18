@@ -385,11 +385,11 @@ class ContrastiveLoss(nn.Module):
 
         for i in range(s_a.shape[0]):
             if s_a[i] == Gender.Male:
-                cost_s[i, :] = cost_s[i, :] * (n_female + 1) / (n_male + n_female + 1)
-                cost_im[:, i] = cost_im[:, i] * (n_female + 1) / (n_male + n_female + 1)
+                cost_s[:, i] = 2 * cost_s[:, i] * (n_female + 1) / (n_male + n_female + 1)
+                cost_im[i, :] = 2 * cost_im[i, :] * (n_female + 1) / (n_male + n_female + 1)
             elif s_a[i] == Gender.Female:
-                cost_s[i, :] = cost_s[i, :] * (n_male + 1) / (n_male + n_female + 1)
-                cost_im[:, i] = cost_im[:, i] * (n_male + 1) / (n_male + n_female + 1)
+                cost_s[:, i] = 2 * cost_s[:, i] * (n_male + 1) / (n_male + n_female + 1)
+                cost_im[i, :] = 2 * cost_im[i, :] * (n_male + 1) / (n_male + n_female + 1)
               
         # neg_inds = []
         # for i in range(s_a.shape[0]):
@@ -512,6 +512,20 @@ class SCAN(object):
         # cap_emb (tensor), cap_lens (list)
         cap_emb, cap_lens = self.txt_enc(captions, lengths)
         cap_attr = self.gender_attr(captions)
+        
+        # add gender features
+        gender_features = []
+        for i in range(len(cap_attr)):
+            if cap_attr[i] == Gender.Male:
+                g_feature = torch.ones(img_emb.shape[2])
+            elif cap_attr[i] == Gender.Female:
+                g_feature = -torch.ones(img_emb.shape[2])
+            else:
+                g_feature = torch.zeros(img_emb.shape[2])
+            gender_features.append(g_feature)
+        
+        img_emb = torch.cat((img_emb, torch.stack(gender_features).unsqueeze(1)), 1)
+
         return img_emb, cap_emb, cap_lens, cap_attr
 
     def forward_loss(self, img_emb, cap_emb, cap_len, cap_attr, **kwargs):
