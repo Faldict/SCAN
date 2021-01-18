@@ -380,26 +380,37 @@ class ContrastiveLoss(nn.Module):
         
         # fairness-aware negative sampling
         s_a = np.array(s_a)
-        neg_inds = []
+        n_male = (s_a == Gender.Male).sum()
+        n_female = (s_a == Gender.Female).sum()
+
         for i in range(s_a.shape[0]):
-            if s_a[i] != Gender.Male:
-                index = np.nonzero(s_a != s_a[i])[0]
-                if index.size > 0:
-                    ind = np.random.choice(index)
-                else:
-                    ind = np.random.choice(s_a.shape[0])
-            else:
-                index = np.nonzero(s_a == s_a[i])[0]
-                if index.size > 1:
-                    ind = np.random.choice(index)
-                else:
-                    ind = np.random.choice(s_a.shape[0])
-            neg_inds.append(ind)
+            if s_a[i] == Gender.Male:
+                cost_s[i, :] = cost_s[i, :] * (n_female + 1) / (n_male + n_female + 1)
+                cost_im[:, i] = cost_im[:, i] * (n_female + 1) / (n_male + n_female + 1)
+            elif s_a[i] == Gender.Female:
+                cost_s[i, :] = cost_s[i, :] * (n_male + 1) / (n_male + n_female + 1)
+                cost_im[:, i] = cost_im[:, i] * (n_male + 1) / (n_male + n_female + 1)
+              
+        # neg_inds = []
+        # for i in range(s_a.shape[0]):
+            # if s_a[i] != Gender.Male:
+                # index = np.nonzero(s_a != s_a[i])[0]
+                # if index.size > 0:
+                #     ind = np.random.choice(index)
+                # else:
+                #     ind = np.random.choice(s_a.shape[0])
+            # else:
+                # index = np.nonzero(s_a == s_a[i])[0]
+                # if index.size > 1:
+                    # ind = np.random.choice(index)
+                # else:
+                    # ind = np.random.choice(s_a.shape[0])
+            # neg_inds.append(ind)
    
-        neg_idxs = torch.from_numpy(np.array(neg_inds)).long().view(-1, 1)
-        if torch.cuda.is_available():
-            neg_idxs = neg_idxs.cuda()
-        return cost_s.gather(1, neg_idxs).sum() + cost_im.t().gather(1, neg_idxs).sum()
+        # neg_idxs = torch.from_numpy(np.array(neg_inds)).long().view(-1, 1)
+        # if torch.cuda.is_available():
+            # neg_idxs = neg_idxs.cuda()
+        return cost_s.sum() + cost_im.sum()
 
 
 class SCAN(object):

@@ -237,9 +237,9 @@ def evalrank(model_path, data_path=None, split='dev', fold5=False):
     
     # evaluate fairness
     with open('gender_difference.txt', 'w') as f:
-        for nr in [1, 5, 10]:
+        for nr in range(1, 11):
             delta_ntrl = gender(data_loader, vocab, sims, nrank=nr)
-            f.write(f"{nr}\t{abs(delta_ntrl).mean()}\n")
+            f.write(f"{nr}\t{delta_ntrl.mean()}\n")
     torch.save({'rt': rt, 'rti': rti}, 'ranks.pth.tar')
 
 def contain(text, keywords):
@@ -274,7 +274,7 @@ def gender(data_loader, vocab, sims, nrank=10):
                 # genders[i*len(captions)+j] = GF
             # else:
                 # genders[i*len(captions)+j] = GN
-    with open('gender_coco_test.npy', 'rb') as f:
+    with open('gender_f30k_test.npy', 'rb') as f:
         genders = np.load(f)
 
     ranking = []
@@ -295,9 +295,9 @@ def gender(data_loader, vocab, sims, nrank=10):
     male = np.where(ranking == GM, 1, 0).sum(axis=1)
     female = np.where(ranking == GF, 1, 0).sum(axis=1)
     # delta_spec = male[genders != GN] - female[genders != GN]
-    delta_ntrl = male - female
+    delta_ntrl = (male - female) / (male + female + 1e-12)
     # print("Gender-Specific Difference: ", abs(male[genders != GN] - female[genders != GN]).mean())
-    print("Gender-Neutral Difference: ", abs(delta_ntrl).mean())
+    print("Gender-Neutral Difference: ", delta_ntrl.mean())
     return delta_ntrl   
 
 def softmax(X, axis):
